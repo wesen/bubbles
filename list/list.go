@@ -135,6 +135,7 @@ type Model struct {
 	// Key mappings for navigating the list.
 	KeyMap KeyMap
 
+	// Filter used to filter the list.
 	Filter FilterFunc
 
 	// Additional key mappings for the short and full help views. This allows

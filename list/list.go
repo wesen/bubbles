@@ -101,6 +101,8 @@ type Model struct {
 	showHelp         bool
 	filteringEnabled bool
 
+	outputStyle lipgloss.Style
+
 	Title  string
 	Styles Styles
 
@@ -145,26 +147,63 @@ type Model struct {
 	delegate ItemDelegate
 }
 
+type ModelOption func(m *Model)
+
+func WithItems(items []Item) ModelOption {
+	return func(m *Model) {
+		m.items = items
+	}
+}
+
+func WithDimensions(width, height int) ModelOption {
+	return func(m *Model) {
+		m.width = width
+		m.height = height
+	}
+}
+
+func WithStyle(style lipgloss.Style) ModelOption {
+	return func(m *Model) {
+		styles := DefaultStyles(style)
+
+		p := paginator.New()
+		p.Type = paginator.Dots
+		p.ActiveDot = styles.ActivePaginationDot.String()
+		p.InactiveDot = styles.InactivePaginationDot.String()
+
+		sp := spinner.NewModel()
+		sp.Spinner = spinner.Line
+		sp.Style = styles.Spinner
+
+		if m.delegate == nil {
+			m.delegate = NewDefaultDelegate(style)
+		}
+
+		filterInput := textinput.NewModel()
+		filterInput.Prompt = "Filter: "
+		filterInput.PromptStyle = styles.FilterPrompt
+		filterInput.CursorStyle = styles.FilterCursor
+		filterInput.CharLimit = 64
+		filterInput.Focus()
+
+		m.Styles = styles
+		m.FilterInput = filterInput
+
+		m.Paginator = p
+		m.spinner = sp
+
+		m.outputStyle = style.Copy()
+	}
+}
+
+func WithDelegate(delegate ItemDelegate) ModelOption {
+	return func(m *Model) {
+		m.delegate = delegate
+	}
+}
+
 // New returns a new model with sensible defaults.
-func New(items []Item, delegate ItemDelegate, width, height int) Model {
-	styles := DefaultStyles()
-
-	sp := spinner.NewModel()
-	sp.Spinner = spinner.Line
-	sp.Style = styles.Spinner
-
-	filterInput := textinput.NewModel()
-	filterInput.Prompt = "Filter: "
-	filterInput.PromptStyle = styles.FilterPrompt
-	filterInput.CursorStyle = styles.FilterCursor
-	filterInput.CharLimit = 64
-	filterInput.Focus()
-
-	p := paginator.NewModel()
-	p.Type = paginator.Dots
-	p.ActiveDot = styles.ActivePaginationDot.String()
-	p.InactiveDot = styles.InactivePaginationDot.String()
-
+func New(options ...ModelOption) Model {
 	m := Model{
 		showTitle:             true,
 		showFilter:            true,
@@ -173,18 +212,17 @@ func New(items []Item, delegate ItemDelegate, width, height int) Model {
 		showHelp:              true,
 		filteringEnabled:      true,
 		KeyMap:                DefaultKeyMap(),
-		Styles:                styles,
 		Title:                 "List",
-		FilterInput:           filterInput,
 		StatusMessageLifetime: time.Second,
 
-		width:     width,
-		height:    height,
-		delegate:  delegate,
-		items:     items,
-		Paginator: p,
-		spinner:   sp,
-		Help:      help.NewModel(),
+		Help: help.NewModel(),
+	}
+
+	// initialize with default style
+	WithStyle(lipgloss.NewStyle())(&m)
+
+	for _, option := range options {
+		option(&m)
 	}
 
 	m.updatePagination()
@@ -948,7 +986,7 @@ func (m Model) View() string {
 		availHeight -= lipgloss.Height(help)
 	}
 
-	content := lipgloss.NewStyle().Height(availHeight).Render(m.populatedView())
+	content := m.outputStyle.Copy().Height(availHeight).Render(m.populatedView())
 	sections = append(sections, content)
 
 	if m.showPagination {
